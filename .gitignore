@@ -1,4 +1,5 @@
-lib/
+lib/*.*
+!lib/index.js
 .vscode/
 coverage/
 node_modules/
