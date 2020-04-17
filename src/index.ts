@@ -46,6 +46,18 @@ export function createSslVerificator(config: Config) {
     request: CertificateVerifyProcRequest,
     callback: (verificationResult: number) => void
   ) => {
+    const domainExistsInConfig = config.some((fp) => {
+      const hostnameRegex = new RegExp(
+        '^' + fp.domain.replace('*.', '.*\\.?') + '$'
+      );
+      return hostnameRegex.test(request.hostname);
+    });
+
+    if (!domainExistsInConfig) {
+      callback(exports.SSL_USE_CHROME_VERIFICATION);
+      return;
+    }
+
     const fingerprints: Array<string> = [];
     for (
       let cert = request.certificate;
