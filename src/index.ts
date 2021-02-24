@@ -3,11 +3,40 @@
  */
 
 import { CertificateVerifyProcRequest } from 'electron';
+import nodeForge from 'node-forge';
+
+type tCache = {
+  stringPem: string;
+  modulus: string;
+}
+
+const caches: Array<tCache> = [];
+
+function getModulusFromStringPem(stringPem: string) {
+
+  const cached = caches.find((cache) => {
+    return cache.stringPem === stringPem;
+  });
+
+  if (cached) {
+    return cached.modulus;
+  }
+
+  const certificate: any = nodeForge.pki.certificateFromPem(stringPem);
+  const modulus = JSON.stringify(certificate.publicKey.n.data);
+
+  caches.push({
+    stringPem,
+    modulus,
+  });
+
+  return modulus;
+}
 
 type Config = Array<{
   domain: string;
   strict: boolean;
-  fingerprints: Array<string>;
+  modulus: Array<string>;
 }>;
 
 // https://electronjs.org/docs/api/session#sessetcertificateverifyprocproc
@@ -24,21 +53,21 @@ export function createSslVerificator(config: Config) {
   });
 
   const rules = config.map((rule) => {
-    const fingerprintSet = new Set(rule.fingerprints);
+    const modulusSet = new Set(rule.modulus);
     const hostnameRegex = new RegExp(
       '^' + rule.domain.replace('*.', '.*\\.?') + '$'
     );
 
-    return (hostname: string, fingerprints: Array<string>) => {
+    return (hostname: string, modulus: Array<string>) => {
       if (!hostnameRegex.test(hostname)) {
         return false;
       }
 
       if (rule.strict) {
-        return fingerprints.every((fp) => fingerprintSet.has(fp));
+        return modulus.every((m) => modulusSet.has(m));
       }
 
-      return fingerprints.some((fp) => fingerprintSet.has(fp));
+      return modulus.some((m) => modulusSet.has(m));
     };
   });
 
@@ -58,16 +87,9 @@ export function createSslVerificator(config: Config) {
       return;
     }
 
-    const fingerprints: Array<string> = [];
-    for (
-      let cert = request.certificate;
-      cert && cert !== cert.issuerCert;
-      cert = cert.issuerCert
-    ) {
-      fingerprints.push(cert.fingerprint);
-    }
+    const modulus = getModulusFromStringPem(request.certificate.data)
 
-    if (rules.some((rule) => rule(request.hostname, fingerprints))) {
+    if (rules.some((rule) => rule(request.hostname, [modulus]))) {
       callback(SSL_USE_CHROME_VERIFICATION);
     } else {
       callback(SSL_FAILURE);
